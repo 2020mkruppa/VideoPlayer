@@ -1,13 +1,15 @@
 #include <iostream>
-#include <opencv2/opencv.hpp>
-#include <opencv2/highgui.hpp>
 #include <stdio.h>
-#include <opencv2/imgproc.hpp>
-#include "buffer.h"
 #include <string>
 #include <sstream>
 #include <vector>
 #include <math.h>
+#include <opencv2/opencv.hpp>
+#include <opencv2/highgui.hpp>
+#include <opencv2/imgproc.hpp>
+#include "buffer.h"
+#include <thread>
+
 using namespace cv;
 
 using std::cout;
@@ -221,9 +223,7 @@ int main(int argc, char** argv){
         return 1;
     }
 
-    cout << "Loading" << endl;
-
-    Buffer buffer(argv[1], 300, 0.3); //threshold should be < 0.5, when buffer adds to front or back
+    Buffer buffer(argv[1], 20, 4, 4); //threshold should be < 0.5, when buffer adds to front or back
     if(buffer.initializationFailed()) {
         cout << "Can't find video" << endl << endl;
         printHelp();
@@ -296,9 +296,7 @@ int main(int argc, char** argv){
             step = 4;
         if(v == '8')
             step = 8;
-        if(buffer.getJump() == -1){
-            bufferingInAction = false;
-        }
+        bufferingInAction = buffer.isBuffering();
         if(v == '.'){
             if(!bufferingInAction){
                 index = min(index + ((int)buffer.getFPS() * 60), totalFrames - 2);
@@ -341,15 +339,7 @@ int main(int argc, char** argv){
         }
 
 
-        Mat* frame = buffer.read(index);
-        if(frame == nullptr) {
-            continue;
-        }
-        if(frame->empty()) {
-            continue;
-        }
-
-        Mat data(205, 260, CV_8UC1, Scalar(0));
+        Mat data(245, 260, CV_8UC1, Scalar(0));
         std::string elapsedTime = format(index * timePerFrame);
         std::string setTime = format((index - start) * timePerFrame);
         cv::putText(data, "Total: " + elapsedTime, Point(15, 30), cv::FONT_HERSHEY_SIMPLEX, 0.8, Scalar(255), 1, LINE_AA);
@@ -357,7 +347,19 @@ int main(int argc, char** argv){
         cv::putText(data, "Start: " + std::to_string(buffer.getStartBuff()), Point(15, 110), cv::FONT_HERSHEY_SIMPLEX, 0.8, Scalar(255), 1, LINE_AA);
         cv::putText(data, "Frame: " + std::to_string(index), Point(15, 150), cv::FONT_HERSHEY_SIMPLEX, 0.8, Scalar(255), 1, LINE_AA);
         cv::putText(data, "End: " + std::to_string(buffer.getEndBuff()), Point(15, 190), cv::FONT_HERSHEY_SIMPLEX, 0.8, Scalar(255), 1, LINE_AA);
+        cv::putText(data, "Size: " + std::to_string(buffer.getBufferSize()), Point(15, 230), cv::FONT_HERSHEY_SIMPLEX, 0.8, Scalar(255), 1, LINE_AA);
 
+        imshow("Data", data);          //ALSO NEED GET SIZE
+
+        cv::Mat* frame = buffer.read(index, true);
+        if(frame == nullptr) {
+            //std::cout << "Nullptr" << index << std::endl;
+            continue;
+        }
+        if(frame->empty()) {
+            //std::cout << "Empty" << index << std::endl;
+            continue;
+        }
 
         Mat resized;
         cv::resize(*frame, resized, Size(width, height));
@@ -365,7 +367,7 @@ int main(int argc, char** argv){
         applyHardPoints(&resized);
         imshow("Frame", resized);
 
-        imshow("Data", data);
+
     }
     destroyAllWindows();
     return 0;

@@ -1,155 +1,151 @@
 #include "buffer.h"
 #include <iostream>
+#include "util.h"
+#include <cassert>
 
-Buffer::Buffer(const std::string videoPath, int bufferSize, float thresholdValue):
-    stream(videoPath), maxSize(bufferSize), threshold(thresholdValue),
-    frameDict(), stopped(false), baseFrame(0), lastRequestedFrame(0), jumpFlagValue(-1), thread(){
-    totalFrames = (int)stream.get(cv::CAP_PROP_FRAME_COUNT);
-    addAhead();
-    thread = std::thread(update, this);
+Buffer::Buffer(const std::string videoPath, int workerSegmentSize, int workerNumber, int numSegments):
+    workerSegmentSize(workerSegmentSize), numBufferSegments(numSegments), stopped(false),
+    firstFrame(0), lastRequestedFrame(0), streamLock(), thread(){
+    for(int i = 0; i < workerNumber; i++){
+        Worker* w = new Worker(videoPath, &streamLock);
+        workers.push_back(w);
+    }
+
+    //workers.push_back(new Worker("Mike 800m0.mp4", &streamLock));
+    //workers.push_back(new Worker("Mike 800m1.mp4", &streamLock));
+    //workers.push_back(new Worker("Mike 800m2.mp4", &streamLock));
+    //workers.push_back(new Worker("Mike 800m3.mp4", &streamLock));
+
+    for(int j = 0; j < numSegments; j++){
+        for(int i = 0; i < workerNumber; i++)
+            workers.at(i)->addFrames((workerSegmentSize * i) + (workerNumber * workerSegmentSize * j), workerSegmentSize, true);
+    }
+    thread = std::thread(checkMoveBuffer, this);
 }
-
 
 Buffer::~Buffer() {
     stopped = true;
-    thread.join();
-    stream.release();
-    for(std::unordered_map<int, cv::Mat*>::iterator iter = frameDict.begin(); iter != frameDict.end(); iter++) {
-        delete iter->second;
-        iter->second = nullptr;
+    for(unsigned i = 0; i < workers.size(); i++){
+        delete workers.at(i);
+        workers.at(i) = nullptr;
     }
-}
-
-bool Buffer::initializationFailed() const {
-    return !stream.isOpened();
+    thread.join();
 }
 
 int Buffer::getTotalFrames() const {
-    return totalFrames;
+    return workers.at(0)->getTotalFrames();
 }
 
 double Buffer::getFPS() const {
-    return stream.get(cv::CAP_PROP_FPS);
+    return workers.at(0)->getFPS();
+}
+
+bool Buffer::initializationFailed() const {
+    for(unsigned i = 0; i < workers.size(); i++){
+        if(workers.at(i)->initializationFailed())
+            return true;
+    }
+    return false;
 }
 
 int Buffer::getStartBuff() const {
-    return baseFrame;
+    return firstFrame;
 }
 
 int Buffer::getEndBuff() const {
-    return baseFrame + frameDict.size() - 1;
+    return getStartBuff() + workerSegmentSize * workers.size() * numBufferSegments;
 }
 
-cv::Mat* Buffer::read(int index) {
-    lastRequestedFrame = index;
-    if(frameDict.find(index) == frameDict.end())
-        return nullptr;
-    return frameDict[index];
+int Buffer::getBufferSize() const {
+    int s = 0;
+    for(unsigned i = 0; i < workers.size(); i++){
+        s += workers.at(i)->getBufferSize();
+    }
+    return s;
 }
 
-int min(int a, int b) {
-    if(a < b)
-        return a;
-    return b;
+cv::Mat* Buffer::read(int index, bool updateLastRequested) {
+    if(updateLastRequested)
+        lastRequestedFrame = index;
+    for(unsigned i = 0; i < workers.size(); i++){
+        cv::Mat* p = workers.at(i)->read(index);
+        if(p != nullptr)
+            return p;
+    }
+    return nullptr;
 }
 
-int max(int a, int b) {
-    if(a < b)
-        return b;
-    return a;
+bool Buffer::isBuffering() const {
+    for(unsigned i = 0; i < workers.size(); i++){
+        if(workers.at(i)->isBuffering())
+            return true;
+    }
+    return false;
 }
 
 void Buffer::addAhead() {
-    if(baseFrame + (int)frameDict.size() >= totalFrames - 1)
+    if(getEndBuff() >= getTotalFrames() - 1)
         return;
 
-    int newEndFrameNum = min(totalFrames - 1, lastRequestedFrame + (int)(maxSize / 2));
-    stream.set(cv::CAP_PROP_POS_FRAMES, baseFrame + (int)frameDict.size());
-
-    for(int pos = baseFrame + (int)frameDict.size(); pos < newEndFrameNum; pos++) {
-        cv::Mat* frame = new cv::Mat();
-        if(!stream.read(*frame))
-            std::cout << "Bad Read" << std::endl;
-        if(frame->empty())
-            std::cout << frame->empty() << std::endl;
-        frameDict[pos] = frame;
+    for(unsigned i = 0; i < workers.size(); i++){
+        int newStart = getEndBuff() + (workerSegmentSize * i);
+        if(newStart >= getTotalFrames())
+            continue; //Entirely out of range
+        if(newStart < getTotalFrames() - workerSegmentSize)
+            workers.at(i)->addFrames(newStart, workerSegmentSize, true);
+        else
+            workers.at(i)->addFrames(newStart, getTotalFrames() - newStart, true);
+        workers.at(i)->removeFrames(false);
     }
-
-    int bottomFrame = baseFrame;
-    while((int)frameDict.size() > maxSize) {
-        delete frameDict[bottomFrame];
-        frameDict.erase(bottomFrame);
-        bottomFrame++;
-    }
-    baseFrame = bottomFrame;
+    firstFrame += workerSegmentSize * workers.size();
 }
 
 void Buffer::addBehind(){
-    if(baseFrame == 0)
+    if(firstFrame <= 0)
       return;
-    int newStartFrameNum = max(0, lastRequestedFrame - (int)(maxSize / 2));
-    stream.set(cv::CAP_PROP_POS_FRAMES, newStartFrameNum);
-
-    for(int pos = newStartFrameNum; pos < baseFrame; pos++) {
-        cv::Mat* frame = new cv::Mat();
-        if(!stream.read(*frame))
-            std::cout << "Bad Read" << std::endl;
-        frameDict[pos] = frame;
+    for(unsigned i = 0; i < workers.size(); i++){
+        int newStart = getStartBuff() + (workerSegmentSize * i) - (workers.size() * workerSegmentSize);
+        if(newStart < 0)
+            continue; //Entirely out of range
+        workers.at(i)->addFrames(newStart, workerSegmentSize, false);
+        workers.at(i)->removeFrames(true);
     }
-
-    baseFrame = newStartFrameNum;
-    int topFrameNum = baseFrame + (int)frameDict.size() - 1;
-    while((int)frameDict.size() > maxSize) {
-        delete frameDict[topFrameNum];
-        frameDict.erase(topFrameNum);
-        topFrameNum--;
-    }
+    firstFrame -= workerSegmentSize * workers.size();
 }
 
 void Buffer::jump(int anchor){
-    jumpFlagValue = anchor;
+    lastRequestedFrame = anchor;
 }
 
-int Buffer::getJump() const {
-    return jumpFlagValue;
+void Buffer::jump(){
+    firstFrame = lastRequestedFrame - ((getEndBuff() - getStartBuff()) / 2);
+    for(int j = 0; j < numBufferSegments; j++){
+        for(unsigned i = 0; i < workers.size(); i++){
+            workers.at(i)->removeFrames(true); //Clear all buffers
+        }
+    }
+    for(int j = 0; j < numBufferSegments; j++){ //Need separate loop to clear all buffers before adding new
+        for(unsigned i = 0; i < workers.size(); i++){
+            workers.at(i)->addFrames(firstFrame + (workerSegmentSize * i) + (workers.size() * workerSegmentSize * j),
+                                    workerSegmentSize, true);
+        }
+    }
 }
 
-void Buffer::checkJump(){
-    if(jumpFlagValue == -1){
-        return;
-    }
-    while((int)frameDict.size() > 0) {
-        delete frameDict[baseFrame];
-        frameDict.erase(baseFrame);
-        baseFrame++;
-    }
-
-    baseFrame = max(0, min(totalFrames - 1 - maxSize, jumpFlagValue - (maxSize / 2)));
-    stream.set(cv::CAP_PROP_POS_FRAMES, baseFrame);
-    for(int p = 0; p < maxSize; p++) {
-        cv::Mat* frame = new cv::Mat();
-        if(!stream.read(*frame))
-            std::cout << "Bad Read" << std::endl;
-        if(frame->empty())
-            std::cout << frame->empty() << std::endl;
-        frameDict[p + baseFrame] = frame;
-    }
-    lastRequestedFrame = jumpFlagValue;
-    jumpFlagValue = -1;
-}
-
-
-void Buffer::update(){
+void Buffer::checkMoveBuffer(){
     while(true) {
         if(stopped)
             return;
-        checkJump();
-        if(lastRequestedFrame - baseFrame < threshold * ((int)frameDict.size())) //Need more behind
+        int totalCapacity = getEndBuff() - getStartBuff();
+        if(lastRequestedFrame - getEndBuff() > totalCapacity || getStartBuff() - lastRequestedFrame > totalCapacity)
+            jump();
+        //Move if lastRequested is on the last segment
+        if((getEndBuff() - lastRequestedFrame) * numBufferSegments > (numBufferSegments - 1) * totalCapacity) //Need more behind
             addBehind();
-        if(lastRequestedFrame - baseFrame > (1 - threshold) * ((int)frameDict.size()))  //Need more ahead
-            addAhead();
+        if((lastRequestedFrame - getStartBuff()) * numBufferSegments > (numBufferSegments - 1) * totalCapacity)
+             addAhead();
+        //Need more ahead
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
 }
-
 
