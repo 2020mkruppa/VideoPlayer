@@ -18,7 +18,7 @@ Worker::~Worker() {
     stopped = true;
     stream.release();
     queueLock.unlock();
-    //streamLock.unlock();
+    sem.post();
     for(std::unordered_map<int, cv::Mat*>::iterator iter = frameDict.begin(); iter != frameDict.end(); iter++) {
         delete iter->second;
         iter->second = nullptr;
@@ -82,15 +82,16 @@ void Worker::processJob(uint64_t job) {
         {
             Guard guard(*streamLock);
             stream.set(cv::CAP_PROP_POS_FRAMES, startIndex);
-            std::cout << std::this_thread::get_id() << std::endl;
-            for(int pos = startIndex; pos < startIndex + numFrames; pos++) {
-                cv::Mat* frame = new cv::Mat();
-                if(stream.read(*frame))
-                    frameDict[pos] = frame;
-                else
-                    delete frame;
-            }
+            //std::cout << std::this_thread::get_id() << ":" << &stream << std::endl;
         }
+        for(int pos = startIndex; pos < startIndex + numFrames; pos++) {
+            cv::Mat* frame = new cv::Mat();
+            if(stream.read(*frame))
+                frameDict[pos] = frame;
+            else
+                delete frame;
+        }
+
         if(isAtFront(job))
             addJobs.push_back(job);
         else
@@ -106,7 +107,7 @@ void Worker::processJob(uint64_t job) {
         }
         int startIndex = getStartIndex(removeJob);
         int numFrames = getNumFrames(removeJob);
-        //std::cout << "Deleted: " << startIndex << ", " << numFrames << std::endl;
+
         for(int i = startIndex; i < startIndex + numFrames; i++) {
             delete frameDict[i];
             frameDict.erase(i);

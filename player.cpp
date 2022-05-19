@@ -223,7 +223,7 @@ int main(int argc, char** argv){
         return 1;
     }
 
-    Buffer buffer(argv[1], 20, 4, 4); //threshold should be < 0.5, when buffer adds to front or back
+    Buffer buffer(argv[1], 40, 2, 4); //threshold should be < 0.5, when buffer adds to front or back
     if(buffer.initializationFailed()) {
         cout << "Can't find video" << endl << endl;
         printHelp();
