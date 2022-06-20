@@ -80,7 +80,7 @@ void Worker::processJob(uint64_t job) {
         int startIndex = getStartIndex(job);
         int numFrames = getNumFrames(job);
         {
-            Guard guard(*streamLock);
+            //Guard guard(*streamLock);
             stream.set(cv::CAP_PROP_POS_FRAMES, startIndex);
             //std::cout << std::this_thread::get_id() << ":" << &stream << std::endl;
         }

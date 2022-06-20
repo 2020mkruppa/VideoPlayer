@@ -21,6 +21,16 @@ std::vector<Point> ptsHard;
 int dragOldSimple = -1;
 int dragOldHard = -1;
 
+int index = 0;
+int step = 1;
+int start = 0;
+int waitKeyTime = 1;
+int run = 0;
+bool bufferingInAction = false;
+Buffer* bufferPointer;
+bool exitFlag = false;
+Mat* dataPointer;
+
 void millisecondsFormat(std::stringstream& ss, int t) {
     ss << (t < 100 ? ".0" : ".") << (t < 10 ? "0" : "") << t;
 }
@@ -217,13 +227,148 @@ void applyHardPoints(Mat* img){
     }
 }
 
+bool isInside(int x, int y, int topLeftX, int topLeftY){
+    return x >= topLeftX && x <= (topLeftX + 40) && y >= topLeftY && y <= (topLeftY + 40);
+}
+
+void drawStepButtons(int selected){
+    cv::rectangle(*dataPointer, Point(15, 250), Point(55, 290), Scalar(selected == 1 ? 255 : 130), -1);
+    cv::rectangle(*dataPointer, Point(15, 250), Point(55, 290), Scalar(80), 5);
+    cv::putText(*dataPointer, "1", Point(30, 275), cv::FONT_HERSHEY_SIMPLEX, 0.5, Scalar(0), 1, LINE_AA);
+
+    cv::rectangle(*dataPointer, Point(65, 250), Point(105, 290), Scalar(selected == 2 ? 255 : 130), -1);
+    cv::rectangle(*dataPointer, Point(65, 250), Point(105, 290), Scalar(80), 5);
+    cv::putText(*dataPointer, "2", Point(80, 275), cv::FONT_HERSHEY_SIMPLEX, 0.5, Scalar(0), 1, LINE_AA);
+
+    cv::rectangle(*dataPointer, Point(115, 250), Point(155, 290), Scalar(selected == 4 ? 255 : 130), -1);
+    cv::rectangle(*dataPointer, Point(115, 250), Point(155, 290), Scalar(80), 5);
+    cv::putText(*dataPointer, "4", Point(130, 275), cv::FONT_HERSHEY_SIMPLEX, 0.5, Scalar(0), 1, LINE_AA);
+
+    cv::rectangle(*dataPointer, Point(165, 250), Point(205, 290), Scalar(selected == 8 ? 255 : 130), -1);
+    cv::rectangle(*dataPointer, Point(165, 250), Point(205, 290), Scalar(80), 5);
+    cv::putText(*dataPointer, "8", Point(180, 275), cv::FONT_HERSHEY_SIMPLEX, 0.5, Scalar(0), 1, LINE_AA);
+}
+
+void drawJumpButtons(){
+    cv::rectangle(*dataPointer, Point(15, 300), Point(55, 340), Scalar(130), -1);
+    cv::rectangle(*dataPointer, Point(15, 300), Point(55, 340), Scalar(80), 5);
+    cv::putText(*dataPointer, "<<", Point(23, 325), cv::FONT_HERSHEY_SIMPLEX, 0.5, Scalar(0), 1, LINE_AA);
+
+    cv::rectangle(*dataPointer, Point(65, 300), Point(105, 340), Scalar(130), -1);
+    cv::rectangle(*dataPointer, Point(65, 300), Point(105, 340), Scalar(80), 5);
+    cv::putText(*dataPointer, "<", Point(80, 325), cv::FONT_HERSHEY_SIMPLEX, 0.5, Scalar(0), 1, LINE_AA);
+
+    cv::rectangle(*dataPointer, Point(115, 300), Point(155, 340), Scalar(130), -1);
+    cv::rectangle(*dataPointer, Point(115, 300), Point(155, 340), Scalar(80), 5);
+    cv::putText(*dataPointer, ">", Point(130, 325), cv::FONT_HERSHEY_SIMPLEX, 0.5, Scalar(0), 1, LINE_AA);
+
+    cv::rectangle(*dataPointer, Point(165, 300), Point(205, 340), Scalar(130), -1);
+    cv::rectangle(*dataPointer, Point(165, 300), Point(205, 340), Scalar(80), 5);
+    cv::putText(*dataPointer, ">>", Point(173, 325), cv::FONT_HERSHEY_SIMPLEX, 0.5, Scalar(0), 1, LINE_AA);
+}
+
+void drawPlayButtons(int selected){
+    cv::rectangle(*dataPointer, Point(15, 350), Point(55, 390), Scalar(selected == 1 ? 255 : 130), -1);
+    cv::rectangle(*dataPointer, Point(15, 350), Point(55, 390), Scalar(80), 5);
+    cv::putText(*dataPointer, "1", Point(30, 375), cv::FONT_HERSHEY_SIMPLEX, 0.5, Scalar(0), 1, LINE_AA);
+
+    cv::rectangle(*dataPointer, Point(65, 350), Point(105, 390), Scalar(selected == 2 ? 255 : 130), -1);
+    cv::rectangle(*dataPointer, Point(65, 350), Point(105, 390), Scalar(80), 5);
+    cv::putText(*dataPointer, "1/2", Point(69, 375), cv::FONT_HERSHEY_SIMPLEX, 0.5, Scalar(0), 1, LINE_AA);
+
+    cv::rectangle(*dataPointer, Point(115, 350), Point(155, 390), Scalar(selected == 3 ? 255 : 130), -1);
+    cv::rectangle(*dataPointer, Point(115, 350), Point(155, 390), Scalar(80), 5);
+    cv::putText(*dataPointer, "1/4", Point(119, 375), cv::FONT_HERSHEY_SIMPLEX, 0.5, Scalar(0), 1, LINE_AA);
+
+    cv::rectangle(*dataPointer, Point(165, 350), Point(205, 390), Scalar(selected == 4 ? 255 : 130), -1);
+    cv::rectangle(*dataPointer, Point(165, 350), Point(205, 390), Scalar(80), 5);
+    cv::putText(*dataPointer, "1/8", Point(169, 375), cv::FONT_HERSHEY_SIMPLEX, 0.5, Scalar(0), 1, LINE_AA);
+}
+
+void drawControlButtons(int selected){
+    cv::rectangle(*dataPointer, Point(215, 275), Point(255, 315), Scalar(selected == 1 ? 255 : 130), -1);
+    cv::rectangle(*dataPointer, Point(215, 275), Point(255, 315), Scalar(80), 5);
+    cv::putText(*dataPointer, "Set", Point(222, 300), cv::FONT_HERSHEY_SIMPLEX, 0.5, Scalar(0), 1, LINE_AA);
+
+    cv::rectangle(*dataPointer, Point(215, 325), Point(255, 365), Scalar(130), -1);
+    cv::rectangle(*dataPointer, Point(215, 325), Point(255, 365), Scalar(80), 5);
+    cv::putText(*dataPointer, "Quit", Point(220, 350), cv::FONT_HERSHEY_SIMPLEX, 0.5, Scalar(0), 1, LINE_AA);
+}
+
+void jumpHelper(int newIndex){
+    if(!bufferingInAction){
+        index = newIndex;
+        bufferPointer->jump(index);
+        bufferingInAction = true;
+        ptsSimple.clear();
+        ptsHard.clear();
+    }
+}
+
+void playHelper(int selectIndex, float fpsScale){
+    step = 0;
+    run = 1;
+    ptsSimple.clear();
+    ptsHard.clear();
+    waitKeyTime = (int)(fpsScale * bufferPointer->getFPS());
+    drawStepButtons(0);
+    drawPlayButtons(selectIndex);
+}
+void stepHelper(int select){
+    step = select;
+    run = 0;
+    drawStepButtons(select);
+    drawPlayButtons(0);
+}
+
+static void mouseHandlerData(int event, int x, int y, int, void*){
+    if (event == EVENT_LBUTTONUP || event == EVENT_RBUTTONUP){
+        if(isInside(x, y, 15, 250)) {
+            stepHelper(1);
+        } else if(isInside(x, y, 65, 250)) {
+            stepHelper(2);
+        } else if(isInside(x, y, 115, 250)) {
+            stepHelper(4);
+        } else if(isInside(x, y, 165, 250)) {
+            stepHelper(8);
+        } else if(isInside(x, y, 15, 300)) {
+            jumpHelper(max(index - ((int)bufferPointer->getFPS() * 900), 0));
+        } else if(isInside(x, y, 65, 300)) {
+            jumpHelper(max(index - ((int)bufferPointer->getFPS() * 60), 0));
+        } else if(isInside(x, y, 115, 300)) {
+            jumpHelper(min(index + ((int)bufferPointer->getFPS() * 60), bufferPointer->getTotalFrames() - 2));
+        } else if(isInside(x, y, 165, 300)) {
+            jumpHelper(min(index + ((int)bufferPointer->getFPS() * 900), bufferPointer->getTotalFrames() - 2));
+        } else if(isInside(x, y, 15, 350)) {
+            playHelper(1, 0.85);
+        } else if(isInside(x, y, 65, 350)) {
+            playHelper(2, 1.7);
+        } else if(isInside(x, y, 115, 350)) {
+            playHelper(3, 3.4);
+        } else if(isInside(x, y, 165, 350)) {
+            playHelper(4, 6.8);
+        } else if(isInside(x, y, 215, 275)) {
+            if(start == 0){
+                start = index;
+                drawControlButtons(1);
+            } else {
+                start = 0;
+                drawControlButtons(0);
+            }
+        } else if(isInside(x, y, 215, 325)) {
+            exitFlag = true;
+        }
+    }
+}
+
 int main(int argc, char** argv){
     if ( argc < 2 ){
         printHelp();
         return 1;
     }
 
-    Buffer buffer(argv[1], 40, 2, 4); //threshold should be < 0.5, when buffer adds to front or back
+    Buffer buffer(argv[1], 80, 1, 4); //threshold should be < 0.5, when buffer adds to front or back
+    bufferPointer = &buffer;
     if(buffer.initializationFailed()) {
         cout << "Can't find video" << endl << endl;
         printHelp();
@@ -250,9 +395,7 @@ int main(int argc, char** argv){
 
     int totalFrames = buffer.getTotalFrames();
     double timePerFrame = 1.0 / buffer.getFPS();
-    int index = 0;
-    int step = 1;
-    int start = 0;
+
 
     namedWindow("Data");
     namedWindow("Frame");
@@ -260,19 +403,30 @@ int main(int argc, char** argv){
     moveWindow("Frame", 20, 20);
     setWindowProperty("Data", cv::WND_PROP_TOPMOST, 1);
     setMouseCallback("Frame", mouseHandler, 0);
-    int run = 0;
-    bool bufferingInAction = false;
+    setMouseCallback("Data", mouseHandlerData, 0);
+
+    Mat data(407, 270, CV_8UC1, Scalar(0));
+    dataPointer = &data;
+    std::string elapsedTime = format(index * timePerFrame);
+    std::string setTime = format((index - start) * timePerFrame);
+    cv::putText(data, "Total: ", Point(15, 30), cv::FONT_HERSHEY_SIMPLEX, 0.8, Scalar(255), 1, LINE_AA);
+    cv::putText(data, "Set: ", Point(15, 70), cv::FONT_HERSHEY_SIMPLEX, 0.8, Scalar(255), 1, LINE_AA);
+    cv::putText(data, "Start: ", Point(15, 110), cv::FONT_HERSHEY_SIMPLEX, 0.8, Scalar(255), 1, LINE_AA);
+    cv::putText(data, "Frame: ", Point(15, 150), cv::FONT_HERSHEY_SIMPLEX, 0.8, Scalar(255), 1, LINE_AA);
+    cv::putText(data, "End: ", Point(15, 190), cv::FONT_HERSHEY_SIMPLEX, 0.8, Scalar(255), 1, LINE_AA);
+    cv::putText(data, "Size: ", Point(15, 230), cv::FONT_HERSHEY_SIMPLEX, 0.8, Scalar(255), 1, LINE_AA);
+
+    drawStepButtons(1);
+    drawJumpButtons();
+    drawPlayButtons(0);
+    drawControlButtons(0);
+
     while(true){
-        int v = waitKey(1) & 0xFF;
-        if(v == 'q')
+        int v = waitKey(waitKeyTime) & 0xFF;
+        if(v == 'q' || exitFlag)
             break;
         if(v == 'f'){
             index = min(index + step, totalFrames - 2);
-            ptsSimple.clear();
-            ptsHard.clear();
-        }
-        if(v == 'p'){
-            run = 1;
             ptsSimple.clear();
             ptsHard.clear();
         }
@@ -282,82 +436,25 @@ int main(int argc, char** argv){
             ptsSimple.clear();
             ptsHard.clear();
         }
-        if(v == 's'){
-            if(start == 0)
-                start = index;
-            else
-                start = 0;
-        }
-        if(v == '1')
-            step = 1;
-        if(v == '2')
-            step = 2;
-        if(v == '4')
-            step = 4;
-        if(v == '8')
-            step = 8;
+
         bufferingInAction = buffer.isBuffering();
-        if(v == '.'){
-            if(!bufferingInAction){
-                index = min(index + ((int)buffer.getFPS() * 60), totalFrames - 2);
-                buffer.jump(index);
-                bufferingInAction = true;
-                ptsSimple.clear();
-                ptsHard.clear();
-            }
-            continue;
-        }
-        if(v == '>'){
-            if(!bufferingInAction){
-                index = min(index + ((int)buffer.getFPS() * 900), totalFrames - 2);
-                buffer.jump(index);
-                bufferingInAction = true;
-                ptsSimple.clear();
-                ptsHard.clear();
-            }
-            continue;
-        }
-        if(v == ','){
-            if(!bufferingInAction){
-                index = max(index - ((int)buffer.getFPS() * 60), 0);
-                buffer.jump(index);
-                bufferingInAction = true;
-                ptsSimple.clear();
-                ptsHard.clear();
-            }
-            continue;
-        }
-        if(v == '<'){
-            if(!bufferingInAction){
-                index = max(index - ((int)buffer.getFPS() * 900), 0);
-                buffer.jump(index);
-                bufferingInAction = true;
-                ptsSimple.clear();
-                ptsHard.clear();
-            }
-            continue;
-        }
 
 
-        Mat data(245, 260, CV_8UC1, Scalar(0));
         std::string elapsedTime = format(index * timePerFrame);
         std::string setTime = format((index - start) * timePerFrame);
-        cv::putText(data, "Total: " + elapsedTime, Point(15, 30), cv::FONT_HERSHEY_SIMPLEX, 0.8, Scalar(255), 1, LINE_AA);
-        cv::putText(data, "Set: " + setTime, Point(15, 70), cv::FONT_HERSHEY_SIMPLEX, 0.8, Scalar(255), 1, LINE_AA);
-        cv::putText(data, "Start: " + std::to_string(buffer.getStartBuff()), Point(15, 110), cv::FONT_HERSHEY_SIMPLEX, 0.8, Scalar(255), 1, LINE_AA);
-        cv::putText(data, "Frame: " + std::to_string(index), Point(15, 150), cv::FONT_HERSHEY_SIMPLEX, 0.8, Scalar(255), 1, LINE_AA);
-        cv::putText(data, "End: " + std::to_string(buffer.getEndBuff()), Point(15, 190), cv::FONT_HERSHEY_SIMPLEX, 0.8, Scalar(255), 1, LINE_AA);
-        cv::putText(data, "Size: " + std::to_string(buffer.getBufferSize()), Point(15, 230), cv::FONT_HERSHEY_SIMPLEX, 0.8, Scalar(255), 1, LINE_AA);
+
+        cv::rectangle(data, Point(105, 0), Point(270, 240), Scalar(0), -1);
+        cv::putText(data, "" + elapsedTime, Point(105, 30), cv::FONT_HERSHEY_SIMPLEX, 0.8, Scalar(255), 1, LINE_AA);
+        cv::putText(data, "" + setTime, Point(105, 70), cv::FONT_HERSHEY_SIMPLEX, 0.8, Scalar(255), 1, LINE_AA);
+        cv::putText(data, "" + std::to_string(buffer.getStartBuff()), Point(105, 110), cv::FONT_HERSHEY_SIMPLEX, 0.8, Scalar(255), 1, LINE_AA);
+        cv::putText(data, "" + std::to_string(index), Point(105, 150), cv::FONT_HERSHEY_SIMPLEX, 0.8, Scalar(255), 1, LINE_AA);
+        cv::putText(data, "" + std::to_string(buffer.getEndBuff()), Point(105, 190), cv::FONT_HERSHEY_SIMPLEX, 0.8, Scalar(255), 1, LINE_AA);
+        cv::putText(data, "" + std::to_string(buffer.getBufferSize()), Point(105, 230), cv::FONT_HERSHEY_SIMPLEX, 0.8, Scalar(255), 1, LINE_AA);
 
         imshow("Data", data);          //ALSO NEED GET SIZE
 
         cv::Mat* frame = buffer.read(index, true);
-        if(frame == nullptr) {
-            //std::cout << "Nullptr" << index << std::endl;
-            continue;
-        }
-        if(frame->empty()) {
-            //std::cout << "Empty" << index << std::endl;
+        if(frame == nullptr || frame->empty()) {
             continue;
         }
 
@@ -366,8 +463,6 @@ int main(int argc, char** argv){
         applySimplePoints(&resized);
         applyHardPoints(&resized);
         imshow("Frame", resized);
-
-
     }
     destroyAllWindows();
     return 0;
