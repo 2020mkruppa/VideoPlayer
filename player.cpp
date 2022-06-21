@@ -9,6 +9,8 @@
 #include <opencv2/imgproc.hpp>
 #include "buffer.h"
 #include <thread>
+#include <windows.h>
+#include <winuser.h>
 
 using namespace cv;
 
@@ -29,6 +31,9 @@ int run = 0;
 bool bufferingInAction = false;
 Buffer* bufferPointer;
 bool exitFlag = false;
+int resolutionOption = 1;
+int top = 0;
+int left = 0;
 Mat* dataPointer;
 
 void millisecondsFormat(std::stringstream& ss, int t) {
@@ -88,11 +93,9 @@ void printHelp() {
     cout << "Press '>' to jump 15 minutes ahead, and '<' to jump 15 minutes back" << endl;
 }
 
-
 double length(Point p){
     return sqrt((p.x * p.x) + (p.y * p.y));
 }
-
 
 static void mouseHandler(int event, int x, int y, int, void*){
     if (event == EVENT_LBUTTONUP || event == EVENT_RBUTTONUP){
@@ -295,6 +298,20 @@ void drawControlButtons(int selected){
     cv::putText(*dataPointer, "Quit", Point(220, 350), cv::FONT_HERSHEY_SIMPLEX, 0.5, Scalar(0), 1, LINE_AA);
 }
 
+void drawResolutionButtons(int selected){
+    cv::rectangle(*dataPointer, Point(15, 400), Point(55, 440), Scalar(selected == 1 ? 255 : 130), -1);
+    cv::rectangle(*dataPointer, Point(15, 400), Point(55, 440), Scalar(80), 5);
+    cv::putText(*dataPointer, "Orig", Point(20, 425), cv::FONT_HERSHEY_SIMPLEX, 0.5, Scalar(0), 1, LINE_AA);
+
+    cv::rectangle(*dataPointer, Point(65, 400), Point(105, 440), Scalar(selected == 2 ? 255 : 130), -1);
+    cv::rectangle(*dataPointer, Point(65, 400), Point(105, 440), Scalar(80), 5);
+    cv::putText(*dataPointer, "W", Point(80, 425), cv::FONT_HERSHEY_SIMPLEX, 0.5, Scalar(0), 1, LINE_AA);
+
+    cv::rectangle(*dataPointer, Point(115, 400), Point(155, 440), Scalar(selected == 3 ? 255 : 130), -1);
+    cv::rectangle(*dataPointer, Point(115, 400), Point(155, 440), Scalar(80), 5);
+    cv::putText(*dataPointer, "H", Point(130, 425), cv::FONT_HERSHEY_SIMPLEX, 0.5, Scalar(0), 1, LINE_AA);
+}
+
 void jumpHelper(int newIndex){
     if(!bufferingInAction){
         index = newIndex;
@@ -306,7 +323,6 @@ void jumpHelper(int newIndex){
 }
 
 void playHelper(int selectIndex, float fpsScale){
-    step = 0;
     run = 1;
     ptsSimple.clear();
     ptsHard.clear();
@@ -314,11 +330,20 @@ void playHelper(int selectIndex, float fpsScale){
     drawStepButtons(0);
     drawPlayButtons(selectIndex);
 }
+
 void stepHelper(int select){
     step = select;
     run = 0;
+    waitKeyTime = 1;
     drawStepButtons(select);
     drawPlayButtons(0);
+}
+
+void resolutionHelper(int selectIndex){
+    resolutionOption = selectIndex;
+    ptsSimple.clear();
+    ptsHard.clear();
+    drawResolutionButtons(selectIndex);
 }
 
 static void mouseHandlerData(int event, int x, int y, int, void*){
@@ -357,6 +382,14 @@ static void mouseHandlerData(int event, int x, int y, int, void*){
             }
         } else if(isInside(x, y, 215, 325)) {
             exitFlag = true;
+        } else if(isInside(x, y, 15, 400)) {
+            resolutionHelper(1);
+        } else if(isInside(x, y, 65, 400)) {
+            resolutionHelper(2);
+            moveWindow("Frame", left, top);
+        } else if(isInside(x, y, 115, 400)) {
+            resolutionHelper(3);
+            moveWindow("Frame", left, top);
         }
     }
 }
@@ -375,23 +408,25 @@ int main(int argc, char** argv){
         return 2;
     }
 
-    int width = 1920;
-    int height = 1080;
-    if(argc >= 4) {
-        try{
-            width = std::stoi(argv[2]);
-            height = std::stoi(argv[3]);
-        } catch (std::invalid_argument& e) {
-            cout << "Bad input" << endl << endl;
-            printHelp();
-            return 3;
-        }
-        if(width < 1 || height < 1 || width > 10000 || height > 10000) {
-            cout << "Bad input" << endl << endl;
-            printHelp();
-            return 4;
-        }
+    int displayWidth = 1920;
+    int displayHeight = 1080;
+
+    SetConsoleTitle("Command Prompt - Video Player");
+    Sleep(40);
+    HWND window = FindWindow(NULL, "Command Prompt - Video Player");
+
+    HMONITOR monitor = MonitorFromWindow(window, MONITOR_DEFAULTTONULL);
+    MONITORINFO target;
+    target.cbSize = sizeof(MONITORINFO);
+    if(monitor != NULL){
+        GetMonitorInfo(monitor, &target);
+        displayWidth = target.rcMonitor.right - target.rcMonitor.left;
+        displayHeight = target.rcMonitor.bottom - target.rcMonitor.top;
+    } else {
+        cout << "Can't find cmd window" << endl;
     }
+    top = target.rcMonitor.top;
+    left = target.rcMonitor.left;
 
     int totalFrames = buffer.getTotalFrames();
     double timePerFrame = 1.0 / buffer.getFPS();
@@ -405,7 +440,7 @@ int main(int argc, char** argv){
     setMouseCallback("Frame", mouseHandler, 0);
     setMouseCallback("Data", mouseHandlerData, 0);
 
-    Mat data(407, 270, CV_8UC1, Scalar(0));
+    Mat data(457, 270, CV_8UC1, Scalar(0));
     dataPointer = &data;
     std::string elapsedTime = format(index * timePerFrame);
     std::string setTime = format((index - start) * timePerFrame);
@@ -420,23 +455,26 @@ int main(int argc, char** argv){
     drawJumpButtons();
     drawPlayButtons(0);
     drawControlButtons(0);
+    drawResolutionButtons(resolutionOption);
 
+    double aspect = 0;
     while(true){
         int v = waitKey(waitKeyTime) & 0xFF;
         if(v == 'q' || exitFlag)
             break;
         if(v == 'f'){
+            stepHelper(step);
             index = min(index + step, totalFrames - 2);
             ptsSimple.clear();
             ptsHard.clear();
         }
-        index += run;
         if(v == 'b'){
+            stepHelper(step);
             index = max(index - step, 0);
             ptsSimple.clear();
             ptsHard.clear();
         }
-
+        index += run;
         bufferingInAction = buffer.isBuffering();
 
 
@@ -458,8 +496,19 @@ int main(int argc, char** argv){
             continue;
         }
 
+        if(aspect == 0){
+            aspect = ((double)(*frame).cols) / (*frame).rows;
+        }
+
         Mat resized;
-        cv::resize(*frame, resized, Size(width, height));
+        if(resolutionOption == 1){
+            resized = frame->clone();
+        } else if(resolutionOption == 2){
+            cv::resize(*frame, resized, Size(displayWidth, (int)(displayWidth / aspect)));
+        } else {
+            cv::resize(*frame, resized, Size((int)(displayHeight * aspect), displayHeight));
+        }
+
         applySimplePoints(&resized);
         applyHardPoints(&resized);
         imshow("Frame", resized);
